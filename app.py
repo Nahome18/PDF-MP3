@@ -1,8 +1,13 @@
 from flask import Flask, request, jsonify, url_for, render_template, send_file
+from flask_cors import CORS 
 from gtts import gTTS
 from PyPDF2 import PdfReader
+import pyttsx3
 import os
 import time
+
+app = Flask(__name__)
+CORS(app)  # Enable CORS for all routes
 
 app = Flask(__name__)
 
@@ -10,18 +15,12 @@ app = Flask(__name__)
 temp_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'temp')
 os.makedirs(temp_dir, exist_ok=True)
 
-# Global variable to track progress
-conversion_progress = {}
-
 @app.route('/')
 def index():
     return render_template('index.html')
 
 @app.route('/upload', methods=['POST'])
 def upload_pdf():
-    global conversion_progress
-    conversion_progress = {}  # Reset progress for new upload
-
     try:
         if 'pdf' not in request.files:
             return jsonify({"success": False, "message": "No file part"}), 400
@@ -41,42 +40,45 @@ def upload_pdf():
             audio_path = convert_text_to_speech(pdf_text, pdf_file.filename)
             os.remove(temp_pdf_path)
 
-            # Extract only the filename for the audio file
-            audio_filename = f"{pdf_file.filename}.mp3"
-            audio_url = url_for('download_file', filename=audio_filename)
+            # Send back the audio file URL
+            audio_url = url_for('download_file', filename=os.path.basename(audio_path))
             return jsonify({"success": True, "audio_url": audio_url})
 
         return jsonify({"success": False, "message": "Invalid file type"}), 400
 
     except Exception as e:
-        return jsonify({"success": False, "message": "Internal server error"}), 500
+        # Log the error to the console for debugging
+        print(f"Error: {e}")
+        return jsonify({"success": False, "message": str(e)}), 500
 
-@app.route('/progress')
-def progress():
-    global conversion_progress
-    return jsonify({"progress": conversion_progress.get("progress", 0)})
 
 def extract_text_from_pdf(pdf_path):
-    reader = PdfReader(pdf_path)
-    text = ""
-    for page in reader.pages:
-        text += page.extract_text() or ""
-    return text
+    try:
+        reader = PdfReader(pdf_path)
+        text = ""
+        for page in reader.pages:
+            text += page.extract_text() or ""
+        return text
+    except Exception as e:
+        print(f"PDF extraction error: {e}")  # Log the error
+        raise RuntimeError("Error reading PDF: " + str(e))
 
 def convert_text_to_speech(text, filename):
-    global conversion_progress
-    tts = gTTS(text=text, lang='en')
+    try:
+        if not text.strip():
+            raise ValueError("Cannot convert empty text to speech.")
+        print(f"Converting text to speech for: {filename}")  # Log the filename
+        
+        engine = pyttsx3.init()
+        audio_path = os.path.join(temp_dir, f"{filename}.mp3")
+        engine.save_to_file(text, audio_path)
+        engine.runAndWait()  # Wait for the speech to finish
+        return audio_path
+    except Exception as e:
+        print(f"TTS conversion error: {e}")  # Log the error
+        raise RuntimeError("Error converting text to speech: " + str(e))
     
-    # Simulate progress (you can implement actual progress tracking based on your needs)
-    for i in range(0, 101, 20):
-        time.sleep(0.5)  # Simulating time taken for conversion
-        conversion_progress["progress"] = i
-
-    audio_path = os.path.join(temp_dir, f"{filename}.mp3")
-    tts.save(audio_path)
-    conversion_progress["progress"] = 100  # Mark complete
-    return audio_path
-
+    
 @app.route('/download/<filename>')
 def download_file(filename):
     audio_path = os.path.join(temp_dir, filename)
