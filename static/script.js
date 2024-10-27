@@ -41,7 +41,6 @@ function uploadFile() {
         document.getElementById('progressBar').value = 0; // Reset progress bar
         document.getElementById('progressContainer').style.display = 'none';
     };
-
     xhr.onerror = function() {
         document.getElementById('outputMessage').innerText = 'An error occurred. Please try again later.';
         document.getElementById('progressContainer').style.display = 'none';
